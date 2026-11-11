@@ -1,3 +1,7 @@
+/**
+ * @file Entry point for the SDK-based server. Reads `PORT` (default 3333) and listens on the
+ * loopback interface only. One `JobStore` is created here and shared by every request.
+ */
 import { JobStore } from '../catalog/jobs.js';
 import { createHttpServer } from './http.js';
 

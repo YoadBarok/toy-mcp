@@ -1,11 +1,11 @@
 {
   "name": "toy-mcp",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Learning project: two toy MCP servers, one on the official SDK and one hand-written against the 2026-07-28 spec",
+  "description": "Learning project: two toy MCP servers, one on the official TypeScript SDK (v1) and one hand-written against the 2026-07-28 spec",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || ^22.13.0 || >=24"
   },
   "scripts": {
     "start": "tsx src/sdk-server/main.ts",
@@ -17,20 +17,19 @@
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
   },
-  "keywords": [],
-  "author": "",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
     "eslint": "^10.14.0",
+    "eslint-plugin-jsdoc": "^62.9.0",
     "prettier": "^3.9.10",
-    "typescript": "^6.0.3",
+    "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2",
     "vitest": "^4.1.12"
   }

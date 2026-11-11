@@ -1,3 +1,5 @@
+// Job store behavior: idempotency, the cost cap, and the running-to-succeeded transition. Fake
+// timers stand in for the job's delay, so these tests do not wait.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobStore } from '../../src/catalog/jobs.js';
 
@@ -18,16 +20,18 @@ afterEach(() => {
 });
 
 describe('JobStore', () => {
-  it('starts a job that is running, then succeeds after the delay', () => {
+  it('starts a job that is running, then succeeds once the full delay has passed', () => {
     const store = new JobStore(3000);
     const started = store.start(request());
     if (!started.ok) throw new Error(started.message);
 
-    expect(store.get(started.jobId)?.state).toBe('running');
-    vi.advanceTimersByTime(3000);
-    expect(store.get(started.jobId)).toMatchObject({
+    vi.advanceTimersByTime(2999);
+    expect(store.get(started.jobId)).toEqual({ state: 'running', item: 'demo/slow-report' });
+    vi.advanceTimersByTime(1);
+    expect(store.get(started.jobId)).toEqual({
       state: 'succeeded',
       item: 'demo/slow-report',
+      result: 'report for {"topic":"mcp","depth":2}',
     });
   });
 
@@ -66,6 +70,32 @@ describe('JobStore', () => {
     const result = new JobStore().start(request({ input: { topic: '' } }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toContain('input.topic:');
+  });
+
+  it('returns the first job for a reused key, even when the other arguments differ', () => {
+    const store = new JobStore();
+    const first = store.start(request());
+    const second = store.start(request({ item: 'demo/nope', maxCostUsd: 0.000001 }));
+
+    if (!first.ok) throw new Error(first.message);
+    expect(second).toEqual({ ok: true, jobId: first.jobId, deduplicated: true });
+  });
+
+  it('accepts an item whose price equals the cap', () => {
+    const result = new JobStore().start(request({ maxCostUsd: 0.01 }));
+    expect(result).toMatchObject({ ok: true, deduplicated: false });
+  });
+
+  it('checks the cost before the input', () => {
+    const result = new JobStore().start(request({ maxCostUsd: 0.001, input: { topic: '' } }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('Refused:');
+  });
+
+  it('does not remember a key whose input was invalid', () => {
+    const store = new JobStore();
+    store.start(request({ input: { topic: '' } }));
+    expect(store.start(request())).toMatchObject({ ok: true, deduplicated: false });
   });
 
   it('returns undefined for an unknown job id', () => {

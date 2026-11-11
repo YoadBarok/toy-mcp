@@ -1,3 +1,4 @@
+// Input validation and search over the shared catalog. Pure logic, no servers involved.
 import { describe, expect, it } from 'vitest';
 import { findItem, searchCatalog, validateInput } from '../../src/catalog/items.js';
 
@@ -28,8 +29,12 @@ describe('validateInput', () => {
 });
 
 describe('searchCatalog', () => {
-  it('matches on name or description, case-insensitively', () => {
+  it('matches on the description, case-insensitively', () => {
     expect(searchCatalog('HACKER').map((i) => i.name)).toEqual(['demo/hn-top']);
+  });
+
+  it('matches on the name', () => {
+    expect(searchCatalog('web-page').map((i) => i.name)).toEqual(['demo/web-page']);
   });
 
   it('returns every item for an empty query, with price and input fields', () => {

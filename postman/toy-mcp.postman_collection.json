@@ -1,15 +1,16 @@
 {
   "info": {
     "name": "toy-mcp",
-    "description": "Requests for the two toy MCP servers. Start each server first (npm start / npm run start:2026).",
+    "description": "Requests for the two toy MCP servers of the toy-mcp repository: a server built on v1 of the official TypeScript SDK, for protocol 2025-11-25, and a hand-written server for protocol 2026-07-28. One folder per server.\n\nStart the server a folder talks to before sending its requests, from the repository root:\n\n- `npm start` for the SDK server, at `http://127.0.0.1:3333/mcp`\n- `npm run start:2026` for the hand-written server, at `http://127.0.0.1:3334/mcp`\n\nThe collection variables `sdk` and `s2026` hold those two URLs. If you start a server on another port (for example `PORT=4000 npm start`), change the matching variable. The third variable, `jobId`, is set by the script on the `start_job` request; if it stays empty, paste the `jobId` from a `start_job` reply into it.\n\nSend the requests of a folder from top to bottom. Each name ends with what to expect: the HTTP status and, for a failure, the JSON-RPC error code or `isError`. No environment and no authorization are needed.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
       "name": "SDK server :3333 (protocol 2025-11-25)",
+      "description": "Version 1 of the official TypeScript SDK (`@modelcontextprotocol/sdk`) in stateless mode. Start it with `npm start`.\n\nEvery reply in this folder is HTTP 200 with an SSE frame, even for a single response: the JSON-RPC message is on the `data:` line. A problem with a tool call comes back as a result with `isError: true`. A problem with the protocol comes back as a JSON-RPC `error`.\n\nBoth headers are required. The SDK answers 406 without `Accept: application/json, text/event-stream` and 415 without `Content-Type: application/json`.",
       "item": [
         {
-          "name": "initialize (old handshake)",
+          "name": "initialize (old handshake) -> 200",
           "request": {
             "method": "POST",
             "header": [
@@ -36,11 +37,12 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "The handshake of the 2025 protocol. The reply carries `protocolVersion`, `capabilities` and `serverInfo`. No `Mcp-Session-Id` response header comes back, because the server runs in stateless mode."
           }
         },
         {
-          "name": "tools/list",
+          "name": "tools/list -> 200",
           "request": {
             "method": "POST",
             "header": [
@@ -67,11 +69,12 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "Lists the five tools with the JSON Schema of their inputs. It works without a prior `initialize`, because the server keeps no session."
           }
         },
         {
-          "name": "echo - ok",
+          "name": "echo - ok -> 200",
           "request": {
             "method": "POST",
             "header": [
@@ -98,11 +101,12 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "The minimal tool call. The result is an array of typed content blocks, here one text block holding `hello`."
           }
         },
         {
-          "name": "echo - wrong type (isError result)",
+          "name": "echo - wrong type -> 200 isError",
           "request": {
             "method": "POST",
             "header": [
@@ -129,11 +133,108 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "`text` is a number. The SDK validates the arguments before the tool runs and answers with a normal result marked `isError: true`. The text names the failing field (`at text`)."
           }
         },
         {
-          "name": "call_item - two bad fields named",
+          "name": "unknown tool -> 200 isError",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"nope\",\n    \"arguments\": {}\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdk}}",
+              "host": [
+                "{{sdk}}"
+              ]
+            },
+            "description": "A tool that does not exist. The answer has the same shape as a validation failure: a result with `isError: true` (`Tool nope not found`), not a JSON-RPC error."
+          }
+        },
+        {
+          "name": "search_catalog -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_catalog\",\n    \"arguments\": {\n      \"query\": \"\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdk}}",
+              "host": [
+                "{{sdk}}"
+              ]
+            },
+            "description": "Step one of the marketplace pattern: find out what exists. An empty `query` returns all three items with their price and input fields. Set `query` to `report` to narrow it to one item."
+          }
+        },
+        {
+          "name": "call_item - ok -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"call_item\",\n    \"arguments\": {\n      \"item\": \"demo/hn-top\",\n      \"input\": {\n        \"mode\": \"top\"\n      }\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdk}}",
+              "host": [
+                "{{sdk}}"
+              ]
+            },
+            "description": "Step two of the marketplace pattern: one generic tool runs any item. The reply shows the input after defaults were applied (`maxResults: 10`) and the price charged."
+          }
+        },
+        {
+          "name": "call_item - two bad fields named -> 200 isError",
           "request": {
             "method": "POST",
             "header": [
@@ -160,11 +261,31 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "A bad enum value and a number out of range. Both fields are named in one reply (`input.mode` and `input.maxResults`), so a caller can fix the whole input in one retry."
           }
         },
         {
-          "name": "start_job (send twice: deduplicated)",
+          "name": "start_job (send twice: deduplicated) -> 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The reply is an SSE frame. The JSON-RPC message is on the data: line, and the tool's",
+                  "// answer is a JSON string inside result.content[0].text.",
+                  "const dataLine = pm.response.text().split('\\n').find((line) => line.startsWith('data: '));",
+                  "if (dataLine) {",
+                  "  const result = JSON.parse(dataLine.slice('data: '.length)).result;",
+                  "  if (result && !result.isError) {",
+                  "    pm.collectionVariables.set('jobId', JSON.parse(result.content[0].text).jobId);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -191,11 +312,12 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "Starts a long-running item and returns a `jobId` handle instead of holding a session open. Send it twice: the second reply carries the same `jobId` with `deduplicated: true`, because the `idempotencyKey` is the same.\n\nThe script on this request copies the `jobId` into the `jobId` collection variable for `get_result`. The server remembers a key until it restarts, so a first reply that already says `deduplicated: true` means `k-1` was used earlier."
           }
         },
         {
-          "name": "start_job - over budget",
+          "name": "start_job - over budget -> 200 isError",
           "request": {
             "method": "POST",
             "header": [
@@ -222,11 +344,12 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "`maxCostUsd` is below the price of the item (0.01 USD), so the job is refused before any work starts."
           }
         },
         {
-          "name": "get_result (set {{jobId}} first)",
+          "name": "get_result (uses {{jobId}}) -> 200",
           "request": {
             "method": "POST",
             "header": [
@@ -253,11 +376,12 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "Reads a job by its handle, taken from the `jobId` collection variable. For three seconds after `start_job` the state is `running`; after that it is `succeeded` and carries the result.\n\nAn empty or unknown `jobId` gets `No job ...` with `isError: true`. A valid id gets the same answer after the server restarts, because jobs live in memory."
           }
         },
         {
-          "name": "server/discover (SDK predates it: -32601)",
+          "name": "server/discover (not in SDK v1) -> 200 -32601",
           "request": {
             "method": "POST",
             "header": [
@@ -284,13 +408,15 @@
               "host": [
                 "{{sdk}}"
               ]
-            }
+            },
+            "description": "The method that replaces `initialize` in the 2026-07-28 revision. Version 1 of the SDK does not implement that revision and answers with the JSON-RPC error `-32601` inside an HTTP 200. Compare request A in the other folder, where the same method is answered, and request H, where an unknown method is an HTTP 404."
           }
         }
       ]
     },
     {
       "name": "Hand-written server :3334 (protocol 2026-07-28)",
+      "description": "Node's `http` module only, for the 2026-07-28 revision. Start it with `npm run start:2026`. JSON-RPC replies are plain JSON, not SSE frames.\n\nA is the valid request. B to L are each answered with an error, and the name ends with the HTTP status and, where there is one, the JSON-RPC error code that comes back.\n\nA valid request carries the `MCP-Protocol-Version` and `Mcp-Method` headers (plus `Mcp-Name` for `tools/call`, `resources/read` and `prompts/get`), and `params._meta` with the protocol version and the client capabilities.",
       "item": [
         {
           "name": "A  discover - valid -> 200",
@@ -328,11 +454,12 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "The discovery call that replaces the `initialize` handshake. The reply lists `supportedVersions` and `capabilities`, names the server under `_meta`, and carries `ttlMs` and `cacheScope` so a client can cache it."
           }
         },
         {
-          "name": "B  discover - no headers, no params -> 400 -32020",
+          "name": "B  discover - no MCP headers, no params -> 400 -32020",
           "request": {
             "method": "POST",
             "header": [
@@ -359,7 +486,8 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "Only `Content-Type` and `Accept` are sent: no `MCP-Protocol-Version` header, no `Mcp-Method` header and no `params`. The header check runs first, so the answer is `-32020` and not the `-32602` of request C."
           }
         },
         {
@@ -398,7 +526,8 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "The headers are right but `params._meta` is missing. That is a malformed request: `-32602`."
           }
         },
         {
@@ -437,7 +566,8 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "The header says `2025-11-25` and `_meta` says `2026-07-28`. The request contradicts itself: `-32020`."
           }
         },
         {
@@ -476,7 +606,8 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "The header and `_meta` agree on a version the server does not speak. `error.data` lists `supported` and `requested`, so a client knows what to retry with."
           }
         },
         {
@@ -515,7 +646,8 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "The `Mcp-Method` header says `tools/list` and the body says `server/discover`: `-32020`."
           }
         },
         {
@@ -558,7 +690,8 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "For `tools/call` the `Mcp-Name` header must equal `params.name`. Here the header says `foo` and the body says `bar`: `-32020`."
           }
         },
         {
@@ -601,7 +734,8 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "A `tools/call` that passes every check. The method is not implemented yet (it is step 3 in the README of the repository), so the answer is HTTP 404 with `-32601`. Any method other than `server/discover` and `initialize` gets the same answer once the request passes the checks."
           }
         },
         {
@@ -632,7 +766,8 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "What a 2025 client sends first. The handshake was removed in this revision, so the server answers `-32022` and lists the versions it supports in `error.data`."
           }
         },
         {
@@ -663,7 +798,59 @@
               "host": [
                 "{{s2026}}"
               ]
-            }
+            },
+            "description": "The body is valid JSON but not an object, so it is not a JSON-RPC request: `-32600` with `id: null`."
+          }
+        },
+        {
+          "name": "K  body is not JSON -> 400 -32700",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "not json",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "The body cannot be parsed as JSON at all: `-32700` with `id: null`."
+          }
+        },
+        {
+          "name": "L  GET instead of POST -> 405",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "The 2026-07-28 revision removed the standalone GET stream, so `GET` on the endpoint is answered with HTTP 405. This server sends 405 with an `Allow: POST` header and an empty body for every method other than POST."
           }
         }
       ]
