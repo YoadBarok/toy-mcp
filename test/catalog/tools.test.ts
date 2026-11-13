@@ -1,17 +1,20 @@
 // The shared tool definitions: the single source for what both servers expose.
 import { describe, expect, it } from 'vitest';
-import { CATALOG_TOOLS } from '../../src/catalog/tools.js';
+import { JobStore } from '../../src/catalog/jobs.js';
+import { buildTools } from '../../src/catalog/tools.js';
+
+const TOOLS = buildTools(new JobStore(60_000));
 
 const tool = (name: string) => {
-  const found = CATALOG_TOOLS.find((t) => t.name === name);
+  const found = TOOLS.find((t) => t.name === name);
   if (!found) throw new Error(`no tool ${name}`);
   return found;
 };
 
 describe('shared tool definitions', () => {
   it('defines each tool once, under a unique name', () => {
-    const names = CATALOG_TOOLS.map((t) => t.name);
-    expect(names).toEqual(['echo', 'search_catalog', 'call_item']);
+    const names = TOOLS.map((t) => t.name);
+    expect(names).toEqual(['echo', 'search_catalog', 'call_item', 'start_job', 'get_result']);
     expect(new Set(names).size).toBe(names.length);
   });
 
@@ -25,6 +28,23 @@ describe('shared tool definitions', () => {
     expect(outcome.isError).toBe(true);
     expect(outcome.text).toContain('arguments.item');
     expect(outcome.text).toContain('arguments.input');
+  });
+
+  it('starts a job in the given store and reads it back', () => {
+    const args = {
+      item: 'demo/slow-report',
+      input: { topic: 'x' },
+      idempotencyKey: 't-1',
+      maxCostUsd: 1,
+    };
+    const started = tool('start_job').call(args);
+    expect(started.isError).toBe(false);
+    const { jobId } = JSON.parse(started.text);
+    expect(JSON.parse(tool('get_result').call({ jobId }).text).state).toBe('running');
+    expect(tool('get_result').call({ jobId: 'nope' })).toEqual({
+      text: 'No job nope',
+      isError: true,
+    });
   });
 
   it('never throws, whatever the arguments are', () => {

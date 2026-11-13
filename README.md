@@ -83,7 +83,7 @@ The hand-written server keeps its protocol rules in plain functions (`handleRpc`
 
 ### Postman
 
-`postman/toy-mcp.postman_collection.json` is a Postman collection (v2.1) with 29 requests, in one folder per server. Every request has a description that says what it demonstrates and what to look for in the reply.
+`postman/toy-mcp.postman_collection.json` is a Postman collection (v2.1) with 32 requests, in one folder per server. Every request has a description that says what it demonstrates and what to look for in the reply.
 
 1. Start the server you want to try (see [Quick start](#quick-start)).
 2. In Postman, select **Import** and choose the file. The collection needs no environment and no authorization.
@@ -96,9 +96,9 @@ The hand-written server keeps its protocol rules in plain functions (`handleRpc`
 
 `sdk` and `s2026` are collection variables that hold the whole URL. If you started a server with another `PORT`, change the port in its variable (open the collection, then its **Variables** tab).
 
-The SDK server answers every request in its folder with HTTP 200 and an SSE frame: the JSON-RPC message is on the `data:` line. The hand-written server's requests are lettered A to L. A succeeds. B to L are each answered with an error, and the name says the HTTP status and, where there is one, the JSON-RPC error code to expect.
+The SDK server answers every request in its folder with HTTP 200 and an SSE frame: the JSON-RPC message is on the `data:` line. The hand-written server's requests are lettered A to T: A to L cover the envelope and the per-request rules, and M to T cover the tools. In both folders a request's name ends with the HTTP status to expect and, where there is one, the JSON-RPC error code or `isError`.
 
-`get_result` reads the third collection variable, `jobId`. A script on the `start_job` request stores the `jobId` from the reply in that variable. If `get_result` answers `No job`, copy the `jobId` from the `text` field of the `start_job` reply and paste it into the variable.
+`get_result` reads a job id from a collection variable: `jobId` in the SDK folder and `jobId2026` in the hand-written folder, because each server has its own job store. A script on each `start_job` request stores the `jobId` from the reply in that variable. If `get_result` answers `No job`, send `start_job` on the same server first.
 
 ### curl
 
@@ -157,7 +157,7 @@ Behaviors worth knowing:
 - Replies are SSE frames (`event: message`, `data: {...}`) even for a single response.
 - Argument-validation failures and unknown tools come back as a normal result with `isError: true`. Unknown methods come back as a JSON-RPC `error`.
 - The SDK's transport refuses some requests before any tool runs: `406` unless `Accept` lists both `application/json` and `text/event-stream`, `415` unless `Content-Type` is `application/json`, `400` for an `MCP-Protocol-Version` header that names a version it does not support (such as `2026-07-28`), and `400` with `-32700` for a body that is JSON but not a JSON-RPC message. It acknowledges a notification with `202` and no body.
-- Jobs live in memory, so a restart loses them. A real deployment needs a shared store.
+- Jobs live in memory and a timer stands in for the work, so a restart loses them. A real deployment needs a database, a queue and workers; `docs/how-it-works.md` lists what stands in for what.
 
 ## The hand-written server
 
@@ -168,7 +168,7 @@ Built one step at a time; each step is runnable and each rejection is visible in
 | 1    | JSON-RPC envelope, `server/discover`, `404` with `-32601` for removed or unknown methods            | Done    |
 | 2    | Per-request rules: required headers, required `_meta`, version check, `initialize` from old clients | Done    |
 | 3    | `tools/list` and `tools/call` with `resultType`, plus `ttlMs` and `cacheScope` on the list          | Done    |
-| 4    | The handle, idempotency and cost-cap tools from the SDK server                                      | Planned |
+| 4    | The handle, idempotency and cost-cap tools from the SDK server                                      | Done    |
 | 5    | Multi round-trip requests: `input_required`, `requestState` and `inputResponses`                    | Planned |
 
 A tool that fails, or is given arguments its schema rejects, answers with HTTP 200 and a normal result carrying `isError: true`. An unknown tool is a protocol error: `400` with `-32602`.

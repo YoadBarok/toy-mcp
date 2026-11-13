@@ -1,11 +1,12 @@
 /**
  * @file Entry point for the hand-written 2026-07-28 server. Reads `PORT` (default 3334) and
- * listens on the loopback interface only.
+ * listens on the loopback interface only. One `JobStore` is created here and shared by every request.
  */
+import { JobStore } from '../catalog/jobs.js';
 import { createHttpServer } from './http.js';
 
 const PORT = Number(process.env.PORT ?? 3334);
 
-createHttpServer(console.log).listen(PORT, '127.0.0.1', () => {
+createHttpServer(new JobStore(), console.log).listen(PORT, '127.0.0.1', () => {
   console.log(`2026-07-28 server on http://127.0.0.1:${PORT}/mcp`);
 });

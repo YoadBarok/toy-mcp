@@ -40,6 +40,8 @@ export type StartResult =
  *
  * In-memory on purpose: a deployment with several processes needs a shared store behind this
  * interface, because a `jobId` is only useful if whichever process receives it can find the job.
+ * In production the maps become database rows, and the timer in `start` becomes a message queue
+ * with workers. docs/how-it-works.md lists what stands in for what.
  */
 export class JobStore {
   private readonly jobs = new Map<string, Job>();
@@ -90,7 +92,9 @@ export class JobStore {
     this.jobs.set(jobId, { state: 'running', item });
     this.jobIdByKey.set(idempotencyKey, jobId);
 
-    // The timer stands in for real work. unref() keeps it from holding the process open.
+    // The timer stands in for a queue and a worker: a real `start` would save the job as `queued`
+    // and publish its id, and a worker would do the work and write the result. unref() keeps the
+    // timer from holding the process open.
     setTimeout(() => {
       this.jobs.set(jobId, {
         state: 'succeeded',

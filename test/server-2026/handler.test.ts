@@ -2,9 +2,13 @@
 // sockets. Each rejection case names the error code it must produce.
 import { describe, expect, it } from 'vitest';
 import type { RpcResponse } from '../../src/protocol/jsonrpc.js';
-import { handleRpc } from '../../src/server-2026/handler.js';
+import { JobStore } from '../../src/catalog/jobs.js';
+import { createHandler } from '../../src/server-2026/handler.js';
 
 const VERSION = '2026-07-28';
+
+// Jobs stay `running` for the whole test run, so no timer fires.
+const handleRpc = createHandler(new JobStore(60_000));
 
 const meta = (version = VERSION) => ({
   _meta: {
@@ -267,7 +271,13 @@ describe('tools', () => {
     expect(typeof result.ttlMs).toBe('number');
 
     const tools = result.tools as { name: string; inputSchema: Record<string, unknown> }[];
-    expect(tools.map((t) => t.name)).toEqual(['echo', 'search_catalog', 'call_item']);
+    expect(tools.map((t) => t.name)).toEqual([
+      'echo',
+      'search_catalog',
+      'call_item',
+      'start_job',
+      'get_result',
+    ]);
     expect(tools[0].inputSchema).toMatchObject({
       type: 'object',
       properties: { text: { type: 'string' } },
@@ -346,5 +356,69 @@ describe('tools', () => {
       expect(r.status).toBe(400);
       expect(errorOf(r).code).toBe(-32602);
     }
+  });
+
+  // Step 4. Each call below is a separate request to a handler that keeps nothing in between:
+  // the jobId alone is enough to find the job again.
+  describe('job tools', () => {
+    const start = (idempotencyKey: string, maxCostUsd = 0.05) =>
+      call('start_job', {
+        item: 'demo/slow-report',
+        input: { topic: 'mcp' },
+        idempotencyKey,
+        maxCostUsd,
+      });
+    const payload = (r: RpcResponse) => JSON.parse(resultOf(r).content[0].text);
+
+    it('starts a job and reads it back by its handle in a later request', () => {
+      const started = start('h-1');
+      expect(started.status).toBe(200);
+      expect(resultOf(started)).toMatchObject({ resultType: 'complete' });
+      const { jobId, deduplicated } = payload(started);
+      expect(deduplicated).toBe(false);
+
+      const read = call('get_result', { jobId });
+      expect(read.status).toBe(200);
+      expect(payload(read)).toEqual({ state: 'running', item: 'demo/slow-report' });
+    });
+
+    it('returns the same job for a retry with the same idempotency key', () => {
+      const first = payload(start('h-2'));
+      const retry = payload(start('h-2'));
+      expect(retry).toEqual({ jobId: first.jobId, deduplicated: true });
+    });
+
+    it('refuses a job above the cost cap as a tool failure, not a protocol error', () => {
+      const r = start('h-3', 0.001);
+      expect(r.status).toBe(200);
+      expect(resultOf(r).isError).toBe(true);
+      expect(resultOf(r).content[0].text).toContain('above the cap');
+    });
+
+    it('answers an unknown jobId with a tool failure', () => {
+      const r = call('get_result', { jobId: 'nope' });
+      expect(r.status).toBe(200);
+      expect(resultOf(r)).toMatchObject({ isError: true, content: [{ text: 'No job nope' }] });
+    });
+
+    it('rejects arguments the schema refuses and names each field', () => {
+      const r = call('start_job', { item: 'demo/slow-report', input: {}, idempotencyKey: '' });
+      expect(resultOf(r).isError).toBe(true);
+      expect(resultOf(r).content[0].text).toContain('arguments.idempotencyKey');
+      expect(resultOf(r).content[0].text).toContain('arguments.maxCostUsd');
+    });
+
+    it('keeps jobs apart between two servers', () => {
+      const other = createHandler(new JobStore(60_000));
+      const { jobId } = payload(start('h-4'));
+      const body = {
+        jsonrpc: '2.0',
+        id: 30,
+        method: 'tools/call',
+        params: { name: 'get_result', arguments: { jobId }, ...meta() },
+      };
+      const r = other(headers('tools/call', VERSION, 'get_result'), JSON.stringify(body));
+      expect(resultOf(r).isError).toBe(true);
+    });
   });
 });

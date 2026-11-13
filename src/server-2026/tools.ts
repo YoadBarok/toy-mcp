@@ -5,7 +5,7 @@
  * into the wire format of this revision.
  */
 import { z } from 'zod';
-import { CATALOG_TOOLS, type ToolOutcome } from '../catalog/tools.js';
+import type { ToolDefinition, ToolOutcome } from '../catalog/tools.js';
 import { ErrorCode } from '../protocol/errors.js';
 import { isRecord } from '../protocol/jsonrpc.js';
 import { complete, type CompleteResult } from '../protocol/result.js';
@@ -18,12 +18,6 @@ export type ToolOutput = {
   /** Present and `true` when the tool failed. Absent on success. */
   isError?: true;
 };
-
-/** The server's tools. Step 4 adds the job tools. */
-const TOOLS = CATALOG_TOOLS;
-
-// A Map, not a plain object, so a tool name such as `constructor` cannot reach a built-in member.
-const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
 
 /**
  * Turns a tool's outcome into the payload of a `tools/call` result.
@@ -43,12 +37,13 @@ const toOutput = ({ text, isError }: ToolOutcome): ToolOutput => ({
  * in one page, so there is no `nextCursor`. It is the same for every caller and changes only when
  * the server is redeployed, so a shared cache may keep it (`cacheScope`) for `ttlMs` milliseconds.
  *
+ * @param tools - The server's tools.
  * @returns The `result` member for a `tools/list` reply.
  */
-export const listToolsResult = () =>
+export const listToolsResult = (tools: ToolDefinition[]) =>
   complete(
     {
-      tools: TOOLS.map(({ name, description, input }) => ({
+      tools: tools.map(({ name, description, input }) => ({
         name,
         description,
         // `io: 'input'` describes what a caller sends, so a field with a default is optional.
@@ -70,10 +65,12 @@ export type CallOutcome =
  * failed, or was given arguments its schema rejects, is a normal result with `isError: true`,
  * which the model sees and can act on.
  *
+ * @param tools - The server's tools, by name. A `Map`, not a plain object, so a tool name such
+ * as `constructor` cannot reach a built-in member.
  * @param params - The request's `params`, still untrusted.
  * @returns The tool's result, or the failure to send as a JSON-RPC error.
  */
-export const callTool = (params: unknown): CallOutcome => {
+export const callTool = (tools: Map<string, ToolDefinition>, params: unknown): CallOutcome => {
   const invalid = (message: string): CallOutcome => ({
     ok: false,
     status: 400,
@@ -82,7 +79,7 @@ export const callTool = (params: unknown): CallOutcome => {
   });
 
   const name = isRecord(params) ? params.name : undefined;
-  const tool = typeof name === 'string' ? TOOLS_BY_NAME.get(name) : undefined;
+  const tool = typeof name === 'string' ? tools.get(name) : undefined;
   if (!tool) return invalid(`Unknown tool: ${JSON.stringify(name)}`);
 
   // `arguments` may be left out when a tool needs none. Anything else that is not an object

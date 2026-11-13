@@ -27,6 +27,22 @@ Problems with a tool call come back as results with `isError`; problems with the
 - A `maxCostUsd` below the item's price is refused before any work starts. A real system also needs a meter that stops a running job when spend crosses the cap; this project checks the cap only at the gate.
 - `get_result` reads `running`, then `succeeded` once the delay has passed. After a restart the same `jobId` returns `No job ...`: a handle only works across processes if its state lives in shared storage.
 
+### What stands in for what
+
+`JobStore` is deliberately small. Each part of it stands in for something a real deployment needs:
+
+| In this project                                  | In production                                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A `Map` of jobs in the server's memory           | A database row per job, which every process can read and which survives a restart. Large results go to object storage and the row holds a pointer |
+| A `Map` from idempotency key to `jobId`          | A unique constraint in the database, or an atomic `SET NX` in Redis, so two processes that receive the same retry cannot both start a job         |
+| `setTimeout` that flips the job to `succeeded`   | A message queue and worker processes. `start_job` saves the job and publishes its id; a worker picks it up, does the work and writes the result   |
+| Two states, `running` and `succeeded`            | At least `queued`, `running`, `succeeded` and `failed`, and usually `cancelled` and `timed_out`                                                   |
+| The cost cap checked once, before the job starts | The same check, plus a meter the worker reports to, which stops a run that crosses the cap                                                        |
+
+`get_result` stays as it is in every version: it reads the job by its id and never talks to the queue.
+
+A queue delivers a message at least once, so a worker can receive the same job twice and must check the job's state before starting. Saving the job and publishing the message are two writes to two systems; if the second fails, the job stays `queued` forever. The usual fix is to write the message to a table in the same transaction and let a separate process publish it (the outbox pattern).
+
 ## 4. The hand-written server
 
 It is layered so the protocol rules can be read, and tested, without any HTTP:
@@ -59,7 +75,7 @@ Two implementation choices that are not spec text: the order of checks in `valid
 
 ### Step 3: tools
 
-`echo`, `search_catalog` and `call_item` are defined once, in `src/catalog/tools.ts`, and both servers expose them. The SDK server hands each definition to `registerTool`; `src/server-2026/tools.ts` does by hand what the SDK does out of sight. Three jobs become visible:
+Every tool is defined once, in `src/catalog/tools.ts`, and both servers expose the same list. The SDK server hands each definition to `registerTool`; `src/server-2026/tools.ts` does by hand what the SDK does out of sight. Three jobs become visible:
 
 - **Publishing the schema.** `tools/list` must return each tool's arguments as JSON Schema. `listToolsResult` converts the tool's zod schema with `z.toJSONSchema`, in input mode, so a field with a default is not listed as required.
 - **Validating the arguments.** The same zod schema is applied to `params.arguments` before the tool runs.
@@ -74,6 +90,14 @@ Two implementation choices that are not spec text: the order of checks in `valid
 Every result carries `resultType: "complete"`. No method writes that field itself: each one builds its own payload and passes it through `complete` in `src/protocol/result.ts`, which also attaches the cache hint when one is given. The `tools/list` result also carries `ttlMs` and `cacheScope: "public"`: the list is the same for every caller, so a shared cache may keep it.
 
 Two implementation choices that are not spec text: returning arguments that fail the schema as an `isError` result (the SDK server does the same), and the `ttlMs` of five minutes.
+
+### Step 4: job tools
+
+`start_job` and `get_result` now come from the same shared definitions, so the hand-written server exposes all five tools. `buildTools(jobs)` takes the job store as an argument: a tool cannot hold a job, because a job outlives the request that started it.
+
+Each server creates one `JobStore` in its `main.ts` and passes it down. In the hand-written server, `createHandler(jobs)` returns the request handler, and the store is the only thing that survives between two requests.
+
+Nothing in the protocol layer changed for this step, and that is the point. `start_job` ends its request with a `jobId`. `get_result` arrives later as an unrelated request: no session, no `initialize`, possibly another connection. The handle carries everything the server needs. This is why the handle pattern already fit the 2025 server in stateless mode and fits the 2026-07-28 revision without changes.
 
 ## 5. Surviving bad input
 

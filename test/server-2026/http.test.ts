@@ -3,10 +3,11 @@
 // themselves are covered in handler.test.ts.
 import { connect, type AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { JobStore } from '../../src/catalog/jobs.js';
 import { createHttpServer } from '../../src/server-2026/http.js';
 
 const logLines: string[] = [];
-const server = createHttpServer((line) => logLines.push(line));
+const server = createHttpServer(new JobStore(60_000), (line) => logLines.push(line));
 let url = '';
 
 beforeAll(async () => {

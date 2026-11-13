@@ -1068,6 +1068,154 @@
             },
             "description": "A protocol failure: the tool does not exist, so the reply is a JSON-RPC error with `-32602`. Compare with P, where the tool exists and its failure is a result. The SDK server answers the same request with an `isError` result."
           }
+        },
+        {
+          "name": "R  tools/call start_job (send twice: deduplicated) -> 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The reply is plain JSON here (the SDK server answers with an SSE frame). The tool's answer",
+                  "// is a JSON string inside result.content[0].text.",
+                  "const result = pm.response.json().result;",
+                  "if (result && !result.isError) {",
+                  "  pm.collectionVariables.set('jobId2026', JSON.parse(result.content[0].text).jobId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/call"
+              },
+              {
+                "key": "Mcp-Name",
+                "value": "start_job"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"r1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"start_job\",\n    \"arguments\": {\n      \"item\": \"demo/slow-report\",\n      \"input\": {\n        \"topic\": \"mcp\"\n      },\n      \"idempotencyKey\": \"k-1\",\n      \"maxCostUsd\": 0.05\n    },\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "The same tool, from the same definition, as in the SDK server. It returns a `jobId` handle and the request ends; nothing is held open. Send it twice: the second reply carries the same `jobId` with `deduplicated: true`.\n\nThe script on this request copies the `jobId` into the `jobId2026` collection variable for T. The two servers have separate job stores, so each has its own variable."
+          }
+        },
+        {
+          "name": "S  tools/call start_job - over budget -> 200 isError",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/call"
+              },
+              {
+                "key": "Mcp-Name",
+                "value": "start_job"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"s1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"start_job\",\n    \"arguments\": {\n      \"item\": \"demo/slow-report\",\n      \"input\": {\n        \"topic\": \"mcp\"\n      },\n      \"idempotencyKey\": \"k-2\",\n      \"maxCostUsd\": 0.001\n    },\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "`maxCostUsd` is below the price of the item (0.01 USD), so the job is refused before any work starts. A tool failure: HTTP 200 and a result with `isError: true`."
+          }
+        },
+        {
+          "name": "T  tools/call get_result (uses {{jobId2026}}) -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/call"
+              },
+              {
+                "key": "Mcp-Name",
+                "value": "get_result"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"t1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_result\",\n    \"arguments\": {\n      \"jobId\": \"{{jobId2026}}\"\n    },\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "Reads the job started in R. This is a separate request with no session and no `initialize`: the `jobId` is all the server needs. The state is `running`, then `succeeded` after about three seconds.\n\nIf it answers `No job`, send R first: the variable is empty, or the server was restarted and its in-memory jobs are gone."
+          }
         }
       ]
     }
@@ -1083,6 +1231,10 @@
     },
     {
       "key": "jobId",
+      "value": ""
+    },
+    {
+      "key": "jobId2026",
       "value": ""
     }
   ]

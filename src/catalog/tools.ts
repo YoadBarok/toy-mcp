@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { findItem, searchCatalog, validateInput } from './items.js';
+import type { JobStore } from './jobs.js';
 
 /** What a tool produces, before a server wraps it in a protocol result. */
 export type ToolOutcome = {
@@ -57,8 +58,17 @@ const defineTool = <T extends z.ZodObject>(def: {
   },
 });
 
-/** The tools that need nothing but the catalog. Both servers expose all of them. */
-export const CATALOG_TOOLS: ToolDefinition[] = [
+/**
+ * Builds every tool a server exposes. Both servers call this, so they expose the same five.
+ *
+ * It is a function, not a constant, because the job tools need the store: a job outlives the
+ * request that started it, so its state cannot live in a tool.
+ *
+ * @param jobs - The store behind `start_job` and `get_result`. A server creates one and shares
+ * it across all its requests.
+ * @returns The tool definitions, in the order `tools/list` shows them.
+ */
+export const buildTools = (jobs: JobStore): ToolDefinition[] => [
   // The smallest possible tool: a name, a description, a typed input and a text result.
   defineTool({
     name: 'echo',
@@ -85,6 +95,35 @@ export const CATALOG_TOOLS: ToolDefinition[] = [
       const validated = validateInput(found, input);
       if (!validated.ok) return failure(validated.message);
       return success(JSON.stringify({ item, ranWith: validated.data, chargedUsd: found.priceUsd }));
+    },
+  }),
+  // A long-running call returns a handle instead of holding a connection open. The idempotency
+  // key makes a retry safe, and `maxCostUsd` lets the caller cap what a run may cost.
+  defineTool({
+    name: 'start_job',
+    description:
+      'Start a long-running item. Returns a jobId handle; poll get_result. Retries with the same idempotencyKey return the same job.',
+    input: z.object({
+      item: z.string(),
+      input: z.record(z.string(), z.unknown()),
+      idempotencyKey: z.string().min(1),
+      maxCostUsd: z.number().positive(),
+    }),
+    run: (args) => {
+      const started = jobs.start(args);
+      return started.ok
+        ? success(JSON.stringify({ jobId: started.jobId, deduplicated: started.deduplicated }))
+        : failure(started.message);
+    },
+  }),
+  // The other half of the handle: any process that can reach the store can answer this.
+  defineTool({
+    name: 'get_result',
+    description: 'Read the state of a job by its jobId handle',
+    input: z.object({ jobId: z.string() }),
+    run: ({ jobId }) => {
+      const job = jobs.get(jobId);
+      return job ? success(JSON.stringify(job)) : failure(`No job ${jobId}`);
     },
   }),
 ];
