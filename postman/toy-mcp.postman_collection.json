@@ -695,7 +695,7 @@
           }
         },
         {
-          "name": "H  tools/call valid -> 404 -32601 until step 3",
+          "name": "H  resources/read valid -> 404 -32601",
           "request": {
             "method": "POST",
             "header": [
@@ -713,16 +713,16 @@
               },
               {
                 "key": "Mcp-Method",
-                "value": "tools/call"
+                "value": "resources/read"
               },
               {
                 "key": "Mcp-Name",
-                "value": "echo"
+                "value": "demo://x"
               }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 8,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"echo\",\n    \"arguments\": {},\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"h1\",\n  \"method\": \"resources/read\",\n  \"params\": {\n    \"uri\": \"demo://x\",\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -735,7 +735,7 @@
                 "{{s2026}}"
               ]
             },
-            "description": "A `tools/call` that passes every check. The method is not implemented yet (it is step 3 in the README of the repository), so the answer is HTTP 404 with `-32601`. Any method other than `server/discover` and `initialize` gets the same answer once the request passes the checks."
+            "description": "A method the spec defines but this server does not implement. Its headers and `_meta` are valid, so it passes every per-request rule and only then gets `404` with `-32601`."
           }
         },
         {
@@ -851,6 +851,222 @@
               ]
             },
             "description": "The 2026-07-28 revision removed the standalone GET stream, so `GET` on the endpoint is answered with HTTP 405. This server sends 405 with an `Allow: POST` header and an empty body for every method other than POST."
+          }
+        },
+        {
+          "name": "M  tools/list -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/list"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"m1\",\n  \"method\": \"tools/list\",\n  \"params\": {\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "Lists the tools. Each one has a `name`, a `description` and an `inputSchema` in JSON Schema. The result also carries `resultType`, plus `ttlMs` and `cacheScope` so a client or a shared cache can reuse the list."
+          }
+        },
+        {
+          "name": "N  tools/call search_catalog -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/call"
+              },
+              {
+                "key": "Mcp-Name",
+                "value": "search_catalog"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"n1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"search_catalog\",\n    \"arguments\": {\n      \"query\": \"report\"\n    },\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "A successful call. The `Mcp-Name` header repeats `params.name`. The result has `resultType: \"complete\"` and a `content` array, and no `isError`."
+          }
+        },
+        {
+          "name": "O  tools/call call_item - ok -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/call"
+              },
+              {
+                "key": "Mcp-Name",
+                "value": "call_item"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"o1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"call_item\",\n    \"arguments\": {\n      \"item\": \"demo/hn-top\",\n      \"input\": {\n        \"mode\": \"top\"\n      }\n    },\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "Runs a catalog item. The reply shows `ranWith` with the default `maxResults: 10` applied, and `chargedUsd`."
+          }
+        },
+        {
+          "name": "P  tools/call call_item - two bad fields -> 200 isError",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/call"
+              },
+              {
+                "key": "Mcp-Name",
+                "value": "call_item"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"p1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"call_item\",\n    \"arguments\": {\n      \"item\": \"demo/hn-top\",\n      \"input\": {\n        \"mode\": \"nope\",\n        \"maxResults\": 0\n      }\n    },\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "A tool failure, not a protocol failure: HTTP 200 and a normal result with `isError: true`. The text names both failing fields, so the caller can fix the whole input in one retry."
+          }
+        },
+        {
+          "name": "Q  tools/call unknown tool -> 400 -32602",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/call"
+              },
+              {
+                "key": "Mcp-Name",
+                "value": "nope"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"q1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"nope\",\n    \"arguments\": {},\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "A protocol failure: the tool does not exist, so the reply is a JSON-RPC error with `-32602`. Compare with P, where the tool exists and its failure is a result. The SDK server answers the same request with an `isError` result."
           }
         }
       ]

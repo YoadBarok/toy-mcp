@@ -34,14 +34,15 @@ It is layered so the protocol rules can be read, and tested, without any HTTP:
 ```
 http.ts       reads the body, calls handleRpc, writes status + JSON
 handler.ts    parses, checks the envelope and the rules, dispatches by method
-protocol/     type guards, validateRequest, discoverResult, error codes, JSON-RPC builders
+tools.ts      the tools, tools/list and tools/call
+protocol/     type guards, validateRequest, discoverResult, error codes, JSON-RPC and result builders
 ```
 
 ### Step 1: envelope and discovery
 
 `ok` and `fail` in `src/protocol/jsonrpc.ts` build every JSON-RPC response. `isRpcRequest`, in the same file, is the gate every request passes first. A body that is valid JSON but not a JSON-RPC 2.0 request (`null`, an array, a `method` that is not a string, an `id` that is an object) is refused with `-32600` and `id: null` before any member of it is used.
 
-`server/discover` replaces the handshake: it returns `supportedVersions`, `capabilities`, identity under `_meta`, `instructions`, and `ttlMs` plus `cacheScope` so a client can cache it. Any other method gets `404` with `-32601`. `capabilities` is empty until the server implements tools.
+`server/discover` replaces the handshake: it returns `supportedVersions`, `capabilities`, identity under `_meta`, `instructions`, and `ttlMs` plus `cacheScope` so a client can cache it. Any other method gets `404` with `-32601`. `capabilities` lists what the server implements: `{ "tools": {} }` since step 3.
 
 ### Step 2: the per-request rules
 
@@ -55,6 +56,24 @@ protocol/     type guards, validateRequest, discoverResult, error codes, JSON-RP
 Three codes, three different failures: malformed (`-32602`), headers that are missing or contradict the body (`-32020`), and well-formed but a version this server does not speak (`-32022`). The first failing rule wins. The order is the headers, then `_meta`, then the version, so a request with no MCP headers and no `_meta` gets `-32020`.
 
 Two implementation choices that are not spec text: the order of checks in `validateRequest`, and answering `initialize` with `-32022` plus the supported versions (the spec says a modern-only server SHOULD name its supported versions in errors to `initialize`). `initialize` is answered before the per-request rules run, because a 2025 client sends none of the new headers.
+
+### Step 3: tools
+
+`echo`, `search_catalog` and `call_item` are defined once, in `src/catalog/tools.ts`, and both servers expose them. The SDK server hands each definition to `registerTool`; `src/server-2026/tools.ts` does by hand what the SDK does out of sight. Three jobs become visible:
+
+- **Publishing the schema.** `tools/list` must return each tool's arguments as JSON Schema. `listToolsResult` converts the tool's zod schema with `z.toJSONSchema`, in input mode, so a field with a default is not listed as required.
+- **Validating the arguments.** The same zod schema is applied to `params.arguments` before the tool runs.
+- **Choosing the kind of failure.**
+
+| What went wrong                                        | Reply                                                         | Who can act on it                         |
+| ------------------------------------------------------ | ------------------------------------------------------------- | ----------------------------------------- |
+| Unknown tool, or `arguments` is not an object          | `400`, JSON-RPC error `-32602`                                | The client's developer: the call is wrong |
+| Arguments the tool's schema rejects                    | `200`, result with `isError: true`, every failing field named | The model: it can correct and retry       |
+| The tool ran and failed (unknown item, bad item input) | `200`, result with `isError: true`                            | The model                                 |
+
+Every result carries `resultType: "complete"`. No method writes that field itself: each one builds its own payload and passes it through `complete` in `src/protocol/result.ts`, which also attaches the cache hint when one is given. The `tools/list` result also carries `ttlMs` and `cacheScope: "public"`: the list is the same for every caller, so a shared cache may keep it.
+
+Two implementation choices that are not spec text: returning arguments that fail the schema as an `isError` result (the SDK server does the same), and the `ttlMs` of five minutes.
 
 ## 5. Surviving bad input
 
@@ -77,6 +96,7 @@ The HTTP tests send inputs like these over a real socket, then check that the se
 | `server/discover`           | `-32601` (v1 of the SDK does not implement it)                | Required; returns versions, capabilities, instructions, cache fields                                                                                                  |
 | Per-request metadata        | Not required                                                  | `_meta` version and capabilities required; `MCP-Protocol-Version` and `Mcp-Method` headers required, plus `Mcp-Name` for a call that names a tool, prompt or resource |
 | Unknown method              | HTTP 200 carrying a JSON-RPC `-32601`                         | HTTP 404 with `-32601`                                                                                                                                                |
+| Unknown tool                | A result with `isError: true`                                 | `400` with `-32602`                                                                                                                                                   |
 | Response format             | SSE frame, even for one reply                                 | Plain JSON (the spec allows either)                                                                                                                                   |
 | Notification                | `202` with no body                                            | Not handled yet: answered like a request (see Known gaps in the README)                                                                                               |
 | `Accept` and `Content-Type` | Checked by the SDK: `406` and `415`                           | Not checked                                                                                                                                                           |

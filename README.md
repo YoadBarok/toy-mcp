@@ -7,7 +7,7 @@ Two small MCP servers for studying the Model Context Protocol on the wire, and f
 |                     | Code               | Port | Protocol                                                     | Built with                                                  |
 | ------------------- | ------------------ | ---- | ------------------------------------------------------------ | ----------------------------------------------------------- |
 | SDK server          | `src/sdk-server/`  | 3333 | 2025-11-25 (the latest that v1 of the official SDK supports) | Version 1 of the official TypeScript SDK, in stateless mode |
-| Hand-written server | `src/server-2026/` | 3334 | 2026-07-28                                                   | Node's `http` module only, built step by step               |
+| Hand-written server | `src/server-2026/` | 3334 | 2026-07-28                                                   | Node's `http` module, no MCP SDK, built step by step        |
 
 They can run side by side, so the same kind of request can be sent to each and the answers compared.
 
@@ -58,15 +58,15 @@ The whole of `src/` is about 840 lines, comments included.
 ```
 src/
   protocol/     JSON-RPC types, type guards and reply builders, error codes, per-request validation, server/discover (pure functions)
-  catalog/      the toy marketplace behind the SDK server's tools: items, input validation, job store
+  catalog/      the toy marketplace behind both servers' tools: items, input validation, job store, shared tool definitions
   sdk-server/   the SDK-based server: tool registration and HTTP transport
-  server-2026/  the hand-written server: request handler and HTTP transport
+  server-2026/  the hand-written server: request handler, tools and HTTP transport
 test/           Vitest tests, mirroring src/
 postman/        a Postman collection: ready-made requests for both servers
 docs/           how it works, and the wire shapes of the 2026-07-28 spec
 ```
 
-The hand-written server keeps its protocol rules in plain functions (`handleRpc`, `validateRequest`) with the HTTP layer kept thin, so the rules can be read and tested without a network. It does not use `catalog/` yet: its tools arrive in step 3.
+The hand-written server keeps its protocol rules in plain functions (`handleRpc`, `validateRequest`) with the HTTP layer kept thin, so the rules can be read and tested without a network. Its tools (`src/server-2026/tools.ts`) mirror the SDK server's and use the same `catalog/`.
 
 ## Scripts
 
@@ -83,7 +83,7 @@ The hand-written server keeps its protocol rules in plain functions (`handleRpc`
 
 ### Postman
 
-`postman/toy-mcp.postman_collection.json` is a Postman collection (v2.1) with 24 requests, in one folder per server. Every request has a description that says what it demonstrates and what to look for in the reply.
+`postman/toy-mcp.postman_collection.json` is a Postman collection (v2.1) with 29 requests, in one folder per server. Every request has a description that says what it demonstrates and what to look for in the reply.
 
 1. Start the server you want to try (see [Quick start](#quick-start)).
 2. In Postman, select **Import** and choose the file. The collection needs no environment and no authorization.
@@ -119,7 +119,7 @@ It replies with one line of JSON, shown here on several lines:
   "result": {
     "resultType": "complete",
     "supportedVersions": ["2026-07-28"],
-    "capabilities": {},
+    "capabilities": { "tools": {} },
     "_meta": {
       "io.modelcontextprotocol/serverInfo": { "name": "toy-marketplace-2026", "version": "0.1.0" }
     },
@@ -167,20 +167,22 @@ Built one step at a time; each step is runnable and each rejection is visible in
 | ---- | --------------------------------------------------------------------------------------------------- | ------- |
 | 1    | JSON-RPC envelope, `server/discover`, `404` with `-32601` for removed or unknown methods            | Done    |
 | 2    | Per-request rules: required headers, required `_meta`, version check, `initialize` from old clients | Done    |
-| 3    | `tools/list` and `tools/call` with `resultType`, plus `ttlMs` and `cacheScope` on the list          | Planned |
+| 3    | `tools/list` and `tools/call` with `resultType`, plus `ttlMs` and `cacheScope` on the list          | Done    |
 | 4    | The handle, idempotency and cost-cap tools from the SDK server                                      | Planned |
 | 5    | Multi round-trip requests: `input_required`, `requestState` and `inputResponses`                    | Planned |
 
+A tool that fails, or is given arguments its schema rejects, answers with HTTP 200 and a normal result carrying `isError: true`. An unknown tool is a protocol error: `400` with `-32602`.
+
 Errors it returns today:
 
-| Code     | HTTP | Meaning                                                                                  | Example trigger                                                                                                  |
-| -------- | ---- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `-32700` | 400  | Body is not valid JSON                                                                   | Body `not json`                                                                                                  |
-| `-32600` | 400  | Not a JSON-RPC 2.0 request; answered with `id: null`                                     | Body `null`; a `method` that is not a string; an `id` that is not a string, a number or `null`                   |
-| `-32020` | 400  | A required header is missing, or a header contradicts the body                           | No `MCP-Protocol-Version`; header version differs from `_meta`; `Mcp-Method` or `Mcp-Name` differs from the body |
-| `-32602` | 400  | `_meta` does not carry a protocol version (a string) and client capabilities (an object) | Headers present, no `_meta`                                                                                      |
-| `-32022` | 400  | Unsupported protocol version, with `data.supported` and `data.requested`                 | Version `1900-01-01`, or any `initialize`                                                                        |
-| `-32601` | 404  | Method not found                                                                         | Any method not implemented yet                                                                                   |
+| Code     | HTTP | Meaning                                                                                                                              | Example trigger                                                                                                  |
+| -------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `-32700` | 400  | Body is not valid JSON                                                                                                               | Body `not json`                                                                                                  |
+| `-32600` | 400  | Not a JSON-RPC 2.0 request; answered with `id: null`                                                                                 | Body `null`; a `method` that is not a string; an `id` that is not a string, a number or `null`                   |
+| `-32020` | 400  | A required header is missing, or a header contradicts the body                                                                       | No `MCP-Protocol-Version`; header version differs from `_meta`; `Mcp-Method` or `Mcp-Name` differs from the body |
+| `-32602` | 400  | Invalid params: `_meta` lacks a protocol version (a string) or client capabilities (an object), or a `tools/call` cannot be accepted | Headers present, no `_meta`; `tools/call` naming an unknown tool; `arguments` that is not an object              |
+| `-32022` | 400  | Unsupported protocol version, with `data.supported` and `data.requested`                                                             | Version `1900-01-01`, or any `initialize`                                                                        |
+| `-32601` | 404  | Method not found                                                                                                                     | `resources/read`, or any other method not implemented yet                                                        |
 
 Outside JSON-RPC, a path other than `/mcp` gets `404`, and a method other than `POST` on `/mcp` gets `405` with `Allow: POST`. Both have an empty body.
 

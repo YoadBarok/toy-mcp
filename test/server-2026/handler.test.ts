@@ -225,11 +225,126 @@ describe('removed and unknown methods', () => {
     const body = {
       jsonrpc: '2.0',
       id: 10,
-      method: 'tools/call',
-      params: { name: 'echo', arguments: {}, ...meta() },
+      method: 'resources/read',
+      params: { uri: 'demo://x', ...meta() },
     };
-    const r = send(body, headers('tools/call', VERSION, 'echo'));
+    const r = send(body, headers('resources/read', VERSION, 'demo://x'));
     expect(r.status).toBe(404);
     expect(errorOf(r).code).toBe(-32601);
+  });
+});
+
+describe('tools', () => {
+  type ToolResult = { resultType: string; content: { text: string }[]; isError?: boolean };
+
+  const call = (name: string, args?: unknown) =>
+    send(
+      {
+        jsonrpc: '2.0',
+        id: 20,
+        method: 'tools/call',
+        params: { name, ...(args === undefined ? {} : { arguments: args }), ...meta() },
+      },
+      headers('tools/call', VERSION, name),
+    );
+
+  const resultOf = (r: RpcResponse) => (r.body as { result: ToolResult }).result;
+
+  it('advertises the tools capability in server/discover', () => {
+    const r = send(discover('d2', meta()), headers('server/discover'));
+    expect((r.body as { result: { capabilities: unknown } }).result.capabilities).toEqual({
+      tools: {},
+    });
+  });
+
+  it('lists every tool with a JSON Schema, plus the cache fields', () => {
+    const body = { jsonrpc: '2.0', id: 21, method: 'tools/list', params: meta() };
+    const r = send(body, headers('tools/list'));
+
+    expect(r.status).toBe(200);
+    const result = (r.body as { result: Record<string, unknown> }).result;
+    expect(result).toMatchObject({ resultType: 'complete', cacheScope: 'public' });
+    expect(typeof result.ttlMs).toBe('number');
+
+    const tools = result.tools as { name: string; inputSchema: Record<string, unknown> }[];
+    expect(tools.map((t) => t.name)).toEqual(['echo', 'search_catalog', 'call_item']);
+    expect(tools[0].inputSchema).toMatchObject({
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+    });
+  });
+
+  it('does not require a field that has a default', () => {
+    const body = { jsonrpc: '2.0', id: 22, method: 'tools/list', params: meta() };
+    const r = send(body, headers('tools/list'));
+    const tools = (r.body as { result: { tools: { name: string; inputSchema: object }[] } }).result
+      .tools;
+    const search = tools.find((t) => t.name === 'search_catalog');
+    expect(search?.inputSchema).not.toHaveProperty('required', ['query']);
+  });
+
+  it('runs a tool and returns a complete result without isError', () => {
+    const r = call('echo', { text: 'hi' });
+    expect(r.status).toBe(200);
+    expect(resultOf(r)).toEqual({
+      resultType: 'complete',
+      content: [{ type: 'text', text: 'hi' }],
+    });
+  });
+
+  it('accepts a call without arguments when the tool needs none', () => {
+    const r = call('search_catalog');
+    expect(r.status).toBe(200);
+    expect(JSON.parse(resultOf(r).content[0].text)).toHaveLength(3);
+  });
+
+  it('runs a catalog item and applies its defaults', () => {
+    const r = call('call_item', { item: 'demo/hn-top', input: { mode: 'top' } });
+    expect(JSON.parse(resultOf(r).content[0].text)).toEqual({
+      item: 'demo/hn-top',
+      ranWith: { mode: 'top', maxResults: 10 },
+      chargedUsd: 0.0002,
+    });
+  });
+
+  it('answers arguments the schema rejects with a result that has isError, not a JSON-RPC error', () => {
+    const r = call('echo', { text: 5 });
+    expect(r.status).toBe(200);
+    expect(resultOf(r).isError).toBe(true);
+    expect(resultOf(r).content[0].text).toContain('arguments.text');
+  });
+
+  it('names every failing field of a catalog item in one isError result', () => {
+    const r = call('call_item', { item: 'demo/hn-top', input: { mode: 'nope', maxResults: 0 } });
+    expect(resultOf(r).isError).toBe(true);
+    expect(resultOf(r).content[0].text).toContain('input.mode');
+    expect(resultOf(r).content[0].text).toContain('input.maxResults');
+  });
+
+  it('answers an unknown catalog item with isError', () => {
+    const r = call('call_item', { item: 'demo/none', input: {} });
+    expect(r.status).toBe(200);
+    expect(resultOf(r).isError).toBe(true);
+  });
+
+  it('rejects an unknown tool with 400 and -32602, because that is a protocol error', () => {
+    const r = call('nope', {});
+    expect(r.status).toBe(400);
+    expect(errorOf(r).code).toBe(-32602);
+    expect(errorOf(r).message).toContain('"nope"');
+  });
+
+  it('does not treat a built-in member name as a tool', () => {
+    const r = call('constructor', {});
+    expect(errorOf(r).code).toBe(-32602);
+  });
+
+  it('rejects arguments that are not an object with -32602', () => {
+    for (const args of [null, [], 'text', 5]) {
+      const r = call('echo', args);
+      expect(r.status).toBe(400);
+      expect(errorOf(r).code).toBe(-32602);
+    }
   });
 });

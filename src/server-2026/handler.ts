@@ -9,12 +9,13 @@ import { ErrorCode } from '../protocol/errors.js';
 import { fail, isRecord, isRpcRequest, ok, type RpcResponse } from '../protocol/jsonrpc.js';
 import { validateRequest, type HeaderBag } from '../protocol/validate.js';
 import { SUPPORTED_VERSIONS } from '../protocol/version.js';
+import { callTool, listToolsResult } from './tools.js';
 
 /**
  * Handles one POST to the MCP endpoint.
  *
- * Only `server/discover` is implemented. `initialize` gets a version error that lists the
- * supported versions, and every other method gets `404` with `-32601`.
+ * `server/discover`, `tools/list` and `tools/call` are implemented. `initialize` gets a version
+ * error that lists the supported versions, and every other method gets `404` with `-32601`.
  *
  * @param headers - The request's HTTP headers, with lowercase names.
  * @param rawBody - The request body, unparsed.
@@ -60,10 +61,20 @@ export const handleRpc = (headers: HeaderBag, rawBody: string): RpcResponse => {
     return withMethod(fail(failure.status, id, failure.code, failure.message, failure.data));
   }
 
-  // Every method other than server/discover is unknown here, including ones the spec removed.
+  // Every method not listed here is unknown, including ones the spec removed.
   switch (method) {
     case 'server/discover':
       return withMethod(ok(id, discoverResult()));
+    case 'tools/list':
+      return withMethod(ok(id, listToolsResult()));
+    case 'tools/call': {
+      const outcome = callTool(params);
+      return withMethod(
+        outcome.ok
+          ? ok(id, outcome.result)
+          : fail(outcome.status, id, outcome.code, outcome.message, outcome.data),
+      );
+    }
     default:
       return withMethod(fail(404, id, ErrorCode.MethodNotFound, `Method not found: ${method}`));
   }

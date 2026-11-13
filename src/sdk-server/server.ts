@@ -1,11 +1,12 @@
 /**
- * @file The tools of the SDK-based server. Each tool demonstrates one MCP idea: a minimal tool,
- * search followed by a generic call, and a server-minted handle with idempotency and a cost cap.
+ * @file The tools of the SDK-based server: the shared catalog tools from src/catalog/tools.ts
+ * (a minimal tool, then search followed by a generic call), plus the job tools, which show a
+ * server-minted handle with idempotency and a cost cap.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { findItem, searchCatalog, validateInput } from '../catalog/items.js';
 import type { JobStore } from '../catalog/jobs.js';
+import { CATALOG_TOOLS } from '../catalog/tools.js';
 
 /**
  * Wraps text in the shape MCP expects from a tool: an array of typed content blocks.
@@ -32,42 +33,21 @@ const textResult = (text: string, isError = false) => ({
 export const buildServer = (jobs: JobStore): McpServer => {
   const server = new McpServer({ name: 'toy-marketplace', version: '0.1.0' });
 
-  // The smallest possible tool: a name, a description, a typed input and a content result.
-  server.registerTool(
-    'echo',
-    { description: 'Return the given text unchanged', inputSchema: { text: z.string() } },
-    async ({ text }) => textResult(text),
-  );
+  // The tools both servers share are defined once, in src/catalog/tools.ts. The SDK takes the zod
+  // shape, publishes it as JSON Schema in `tools/list` and validates arguments before the handler
+  // runs.
+  for (const tool of CATALOG_TOOLS) {
+    server.registerTool(
+      tool.name,
+      { description: tool.description, inputSchema: tool.input.shape },
+      async (args) => {
+        const { text, isError } = tool.call(args);
+        return textResult(text, isError);
+      },
+    );
+  }
 
-  // Marketplace pattern, step one: let the caller discover what exists and what each item needs.
-  server.registerTool(
-    'search_catalog',
-    {
-      description: 'Search the catalog of callable items; returns names, prices and input fields',
-      inputSchema: { query: z.string().default('') },
-    },
-    async ({ query }) => textResult(JSON.stringify(searchCatalog(query), null, 2)),
-  );
-
-  // Marketplace pattern, step two: one generic tool runs any item. The SDK checks that `input` is
-  // an object; the per-item contract is checked here so every failing field can be named.
-  server.registerTool(
-    'call_item',
-    {
-      description: 'Run a catalog item synchronously with the given input',
-      inputSchema: { item: z.string(), input: z.record(z.string(), z.unknown()) },
-    },
-    async ({ item, input }) => {
-      const found = findItem(item);
-      if (!found) return textResult(`Unknown item "${item}". Use search_catalog first.`, true);
-      const validated = validateInput(found, input);
-      if (!validated.ok) return textResult(validated.message, true);
-      return textResult(
-        JSON.stringify({ item, ranWith: validated.data, chargedUsd: found.priceUsd }),
-      );
-    },
-  );
-
+  // The job tools need the job store, which only this server has so far.
   // A long-running call returns a handle instead of holding a session open. The idempotency key
   // makes a retry safe, and `maxCostUsd` lets the caller cap what a run may cost.
   server.registerTool(
