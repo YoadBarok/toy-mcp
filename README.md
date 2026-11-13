@@ -83,7 +83,7 @@ The hand-written server keeps its protocol rules in plain functions (`handleRpc`
 
 ### Postman
 
-`postman/toy-mcp.postman_collection.json` is a Postman collection (v2.1) with 32 requests, in one folder per server. Every request has a description that says what it demonstrates and what to look for in the reply.
+`postman/toy-mcp.postman_collection.json` is a Postman collection (v2.1) with 43 requests, in one folder for each server and one for the SDK server's session mode. Every request has a description that says what it demonstrates and what to look for in the reply.
 
 1. Start the server you want to try (see [Quick start](#quick-start)).
 2. In Postman, select **Import** and choose the file. The collection needs no environment and no authorization.
@@ -149,11 +149,13 @@ A small marketplace with a catalog of three fake items.
 | `echo`                        | The minimal tool: name, description, JSON-Schema input, typed content result                                                                  |
 | `search_catalog`, `call_item` | The marketplace pattern: search, then one generic call. A validation failure names every failing field                                        |
 | `start_job`, `get_result`     | A server-minted handle in place of a session. `idempotencyKey` deduplicates retries and `maxCostUsd` is a cost cap checked before work starts |
+| `confirm_purchase`            | A tool that asks the user a question in the middle of a call (elicitation). It works only in session mode                                     |
 
 Behaviors worth knowing:
 
 - It is built on v1 of the official TypeScript SDK (the `@modelcontextprotocol/sdk` package), which supports protocol 2025-11-25 at most, so `server/discover` returns `-32601`. Version 2 of the SDK (the `@modelcontextprotocol/server` and `@modelcontextprotocol/client` packages) implements the 2026-07-28 revision. This project does not use it: the second server is written by hand, so that every rule of the 2026-07-28 wire format is visible in the code.
-- Stateless mode: a fresh server per request, no `Mcp-Session-Id`, and `tools/list` works without `initialize`.
+- Stateless mode on `/mcp`: a fresh server per request, no `Mcp-Session-Id`, and `tools/list` works without `initialize`.
+- Session mode on `/mcp-session`: `initialize` opens a session and returns an `Mcp-Session-Id`, every later request must carry it, and `DELETE` ends it. The server keeps one server object per session in memory. This is what lets `confirm_purchase` ask the user: the question travels on the open stream of the tool call, and the answer, a separate POST, finds the waiting call through the session id. On `/mcp` the same tool fails, and an answer sent there is accepted with `202` and dropped.
 - Replies are SSE frames (`event: message`, `data: {...}`) even for a single response.
 - Argument-validation failures and unknown tools come back as a normal result with `isError: true`. Unknown methods come back as a JSON-RPC `error`.
 - The SDK's transport refuses some requests before any tool runs: `406` unless `Accept` lists both `application/json` and `text/event-stream`, `415` unless `Content-Type` is `application/json`, `400` for an `MCP-Protocol-Version` header that names a version it does not support (such as `2026-07-28`), and `400` with `-32700` for a body that is JSON but not a JSON-RPC message. It acknowledges a notification with `202` and no body.
@@ -197,9 +199,12 @@ Both servers are for learning on a local machine. These things are missing, some
 - **No authentication or authorization.** Anyone who can reach the port can call every tool.
 - **No `Origin` check.** The specification requires an HTTP server to validate the `Origin` header and to answer an invalid one with `403`, as a defense against DNS rebinding. Neither server does. Both bind to `127.0.0.1` only.
 - **No limit on the size of a request body**, on either server.
-- **The path must be exactly `/mcp`.** `/mcp/` and `/mcp?x=1` get `404` from both servers.
+- **Paths must match exactly.** `/mcp/` and `/mcp?x=1` get `404` from both servers.
+- **No web framework.** Both servers use plain `node:http` so that every status code and header is visible. A real service would use a framework such as Express, Fastify or Hono for routing, body parsing and middleware.
 - **The hand-written server answers a notification as if it were a request.** A message without an `id` gets `200` and a reply with `id: null`. The specification asks for `202` and no body.
 - **The hand-written server does not check `Accept` or `Content-Type`.**
+- **The hand-written server cannot ask the user yet.** `confirm_purchase` is listed, but calling it is a tool failure until step 5 adds multi round-trip requests.
+- **Sessions never expire.** A session on `/mcp-session` lives until the client sends `DELETE` or the server restarts. A real server would drop idle sessions, and would need sticky routing or a shared store to run more than one process.
 - **`start_job` compares only the idempotency key.** A second call with the same key and different arguments returns the first job. A production API would refuse it.
 - **The cost cap is checked only before a job starts**, and jobs live in memory.
 

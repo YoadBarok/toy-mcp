@@ -1,6 +1,11 @@
 /**
  * @file The HTTP transport of the hand-written server: route guards, body reading, and writing
  * the reply. The protocol rules live in handler.ts; this file only moves bytes.
+ *
+ * Plain `node:http` on purpose, so every status code and header is visible in this file. A real
+ * service would use a framework such as Express, Fastify or Hono: a router for the path and
+ * method checks, middleware for body parsing, authentication and rate limits, and the MCP
+ * handling as one route handler.
  */
 import { createServer, type Server } from 'node:http';
 import type { JobStore } from '../catalog/jobs.js';

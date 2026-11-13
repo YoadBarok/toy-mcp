@@ -1,5 +1,5 @@
 // End-to-end tests of the SDK-based server over HTTP, on a random port. They pin down the
-// behaviors the documentation describes: protocol ceiling, stateless mode, the five tools, tool
+// behaviors the documentation describes: protocol ceiling, stateless mode, the shared tools, tool
 // errors, the transport's guards and the request log.
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -78,7 +78,7 @@ describe('SDK server', () => {
     expect(await res.text()).toContain('"protocolVersion":"2025-11-25"');
   });
 
-  it('lists its five tools without a prior initialize', async () => {
+  it('lists its tools without a prior initialize', async () => {
     const reply = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     expect(reply.result?.tools?.map((t) => t.name)).toEqual([
       'echo',
@@ -86,6 +86,7 @@ describe('SDK server', () => {
       'call_item',
       'start_job',
       'get_result',
+      'confirm_purchase',
     ]);
   });
 
@@ -233,7 +234,7 @@ describe('transport guards', () => {
     expect(logLines).toEqual([logged]);
 
     const reply = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-    expect(reply.result?.tools).toHaveLength(5);
+    expect(reply.result?.tools).toHaveLength(6);
   });
 });
 

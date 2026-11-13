@@ -277,6 +277,7 @@ describe('tools', () => {
       'call_item',
       'start_job',
       'get_result',
+      'confirm_purchase',
     ]);
     expect(tools[0].inputSchema).toMatchObject({
       type: 'object',
@@ -292,6 +293,14 @@ describe('tools', () => {
       .tools;
     const search = tools.find((t) => t.name === 'search_catalog');
     expect(search?.inputSchema).not.toHaveProperty('required', ['query']);
+  });
+
+  // Step 5 replaces this with an `input_required` result.
+  it('answers a tool that needs the user with a tool failure, until step 5', () => {
+    const r = call('confirm_purchase', { item: 'demo/hn-top' });
+    expect(r.status).toBe(200);
+    expect(resultOf(r).isError).toBe(true);
+    expect(resultOf(r).content[0].text).toContain('needs an answer from the user');
   });
 
   it('runs a tool and returns a complete result without isError', () => {

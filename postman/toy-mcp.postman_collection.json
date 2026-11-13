@@ -411,6 +411,347 @@
             },
             "description": "The method that replaces `initialize` in the 2026-07-28 revision. Version 1 of the SDK does not implement that revision and answers with the JSON-RPC error `-32601` inside an HTTP 200. Compare request A in the other folder, where the same method is answered, and request H, where an unknown method is an HTTP 404."
           }
+        },
+        {
+          "name": "confirm_purchase - no session, cannot ask -> 200 isError",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"confirm_purchase\",\n    \"arguments\": {\n      \"item\": \"demo/hn-top\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdk}}",
+              "host": [
+                "{{sdk}}"
+              ]
+            },
+            "description": "The tool needs the user to confirm, but on the stateless route the server cannot ask. Each request gets a fresh server that never saw `initialize`, so it does not know whether the client can answer a question, and the answer would arrive at yet another fresh server anyway. The result is a tool failure: `Could not ask the user: ...`.\n\nThe session folder shows the same call succeeding."
+          }
+        }
+      ]
+    },
+    {
+      "name": "SDK server :3333, session mode (/mcp-session)",
+      "description": "The same SDK server on a second route that keeps a session per client. Send the requests in order. Request 4 stays open until request 7 answers it, so send 5, 6 and 7 from other tabs while 4 is waiting. The server waits two minutes for an answer.",
+      "item": [
+        {
+          "name": "1  initialize (opens a session) -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"2025-11-25\",\n    \"capabilities\": {\n      \"elicitation\": {\n        \"form\": {}\n      }\n    },\n    \"clientInfo\": {\n      \"name\": \"postman\",\n      \"version\": \"0\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdkSession}}",
+              "host": [
+                "{{sdkSession}}"
+              ]
+            },
+            "description": "Opens a session. The reply carries an `Mcp-Session-Id` response header; a script stores it in the `sessionId` collection variable, and every later request in this folder sends it.\n\n`capabilities.elicitation` tells the server that this client can show a form and send back the answer. The server remembers it for the whole session, which is why it may ask later.\n\nBehind the id the server keeps one server object and one transport in memory until the session ends."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const id = pm.response.headers.get('Mcp-Session-Id');",
+                  "if (id) pm.collectionVariables.set('sessionId', id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2  tools/list with the session id -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{sessionId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/list\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdkSession}}",
+              "host": [
+                "{{sdkSession}}"
+              ]
+            },
+            "description": "An ordinary request inside the session. The `Mcp-Session-Id` header routes it to the server object that request 1 created."
+          }
+        },
+        {
+          "name": "3  tools/list without a session id -> 400 -32000",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/list\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdkSession}}",
+              "host": [
+                "{{sdkSession}}"
+              ]
+            },
+            "description": "On this route every request after `initialize` must carry the session id. Without it the server cannot tell which session the request belongs to."
+          }
+        },
+        {
+          "name": "4  confirm_purchase (stays open until 7 answers) -> 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{sessionId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"confirm_purchase\",\n    \"arguments\": {\n      \"item\": \"demo/hn-top\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdkSession}}",
+              "host": [
+                "{{sdkSession}}"
+              ]
+            },
+            "description": "The tool asks the user to confirm the price before it charges. The response is an SSE stream that stays open. Its first message is a request from the server to the client: `elicitation/create`, with the question and the form to fill in. Note its `id`.\n\nLeave this tab waiting and send requests 5, 6 and 7 from other tabs. When 7 is accepted, the tool result arrives here as a second message and the stream ends.\n\nThis is the server-to-client direction that needs a session: the answer is a separate HTTP request, and only the session id connects it to this waiting call."
+          }
+        },
+        {
+          "name": "5  answer without the session id -> 400 -32000",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 0,\n  \"result\": {\n    \"action\": \"accept\",\n    \"content\": {\n      \"confirm\": true\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdkSession}}",
+              "host": [
+                "{{sdkSession}}"
+              ]
+            },
+            "description": "The answer to the question, sent without `Mcp-Session-Id`. The server refuses it: it cannot know which session, and so which waiting tool call, the answer is for. Request 4 keeps waiting.\n\nThe body is a JSON-RPC response, not a request: it has `result` and no `method`. Its `id` must equal the `id` of the `elicitation/create` message in the stream of request 4. That is `0` for the first question in a session and goes up by one for each further question."
+          }
+        },
+        {
+          "name": "6  answer sent to the stateless route (dropped) -> 202",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 0,\n  \"result\": {\n    \"action\": \"accept\",\n    \"content\": {\n      \"confirm\": true\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdk}}",
+              "host": [
+                "{{sdk}}"
+              ]
+            },
+            "description": "The same answer sent to `/mcp`. The reply is `202 Accepted`, yet nothing happens: the request reached a fresh server with no tool call waiting, so the answer is dropped without an error. Request 4 keeps waiting.\n\nThis is what happens behind a load balancer when the answer reaches a process that does not hold the session.\n\nThe body is a JSON-RPC response, not a request: it has `result` and no `method`. Its `id` must equal the `id` of the `elicitation/create` message in the stream of request 4. That is `0` for the first question in a session and goes up by one for each further question."
+          }
+        },
+        {
+          "name": "7  answer with the session id -> 202",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{sessionId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 0,\n  \"result\": {\n    \"action\": \"accept\",\n    \"content\": {\n      \"confirm\": true\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdkSession}}",
+              "host": [
+                "{{sdkSession}}"
+              ]
+            },
+            "description": "The answer, with the session id. The server accepts it with `202` and no body, hands it to the waiting tool call, and request 4 finishes with `purchased: true`.\n\nChange `confirm` to `false`, or `action` to `decline`, and the tool finishes with `purchased: false`.\n\nThe body is a JSON-RPC response, not a request: it has `result` and no `method`. Its `id` must equal the `id` of the `elicitation/create` message in the stream of request 4. That is `0` for the first question in a session and goes up by one for each further question."
+          }
+        },
+        {
+          "name": "8  DELETE the session -> 200",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{sessionId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sdkSession}}",
+              "host": [
+                "{{sdkSession}}"
+              ]
+            },
+            "description": "Ends the session. The server drops the server object and the transport it kept for this id."
+          }
+        },
+        {
+          "name": "9  tools/list after the session ended -> 404 -32000",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{sessionId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/list\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{sdkSession}}",
+              "host": [
+                "{{sdkSession}}"
+              ]
+            },
+            "description": "The id no longer names a session. `404` tells a client to start again with `initialize`. A server restart has the same effect, because sessions live in memory."
+          }
         }
       ]
     },
@@ -1216,6 +1557,50 @@
             },
             "description": "Reads the job started in R. This is a separate request with no session and no `initialize`: the `jobId` is all the server needs. The state is `running`, then `succeeded` after about three seconds.\n\nIf it answers `No job`, send R first: the variable is empty, or the server was restarted and its in-memory jobs are gone."
           }
+        },
+        {
+          "name": "U  tools/call confirm_purchase (cannot ask yet) -> 200 isError",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "MCP-Protocol-Version",
+                "value": "2026-07-28"
+              },
+              {
+                "key": "Mcp-Method",
+                "value": "tools/call"
+              },
+              {
+                "key": "Mcp-Name",
+                "value": "confirm_purchase"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"t1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"confirm_purchase\",\n    \"arguments\": {\n      \"item\": \"demo/hn-top\"\n    },\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{s2026}}",
+              "host": [
+                "{{s2026}}"
+              ]
+            },
+            "description": "The tool needs the user to confirm, and this server cannot ask yet. This revision has no session to carry a question, so it uses a multi round-trip request instead: an `input_required` result that the client answers by sending the request again. That is step 5. Until then the call is a tool failure."
+          }
         }
       ]
     }
@@ -1235,6 +1620,14 @@
     },
     {
       "key": "jobId2026",
+      "value": ""
+    },
+    {
+      "key": "sdkSession",
+      "value": "http://127.0.0.1:3333/mcp-session"
+    },
+    {
+      "key": "sessionId",
       "value": ""
     }
   ]

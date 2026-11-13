@@ -24,7 +24,7 @@ Start servers for verification on a spare `PORT`, and stop them afterwards, so a
 
 - `src/protocol/`: pure protocol logic (JSON-RPC types, type guards and reply builders, error codes, per-request validation, `server/discover`). No HTTP, no I/O.
 - `src/catalog/`: the toy marketplace (items, input validation, job store) and the tool definitions both servers share. Both servers' tools use it.
-- `src/sdk-server/`, `src/server-2026/`: one server each. `http.ts` is a thin HTTP transport and `main.ts` is the entry point.
+- `src/sdk-server/`, `src/server-2026/`: one server each. `http.ts` is a thin HTTP transport and `main.ts` is the entry point. The SDK server serves two routes: `/mcp` is stateless and `/mcp-session` keeps sessions (`sessions.ts`).
 - `test/` mirrors `src/`. `postman/` has ready-made requests for the behaviors worth trying by hand. `docs/` explains it.
 
 ## Rules

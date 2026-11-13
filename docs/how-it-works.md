@@ -4,10 +4,35 @@ What each part of the project demonstrates, with the responses the servers actua
 
 ## 1. The SDK server: how a request travels
 
-1. **The front door** (`src/sdk-server/http.ts`). Plain Node HTTP with three guards before any MCP code runs: a path other than `/mcp` returns `404`, a method other than `POST` returns `405` with `Allow: POST`, and a body that is not JSON returns `400 invalid JSON`. A `405` on `GET` is consistent with the 2026 revision, which replaced the old GET stream with `subscriptions/listen` over POST.
+1. **The front door** (`src/sdk-server/http.ts`). Plain Node HTTP with three guards before any MCP code runs: a path other than `/mcp` (or `/mcp-session`, described below) returns `404`, a method other than `POST` returns `405` with `Allow: POST`, and a body that is not JSON returns `400 invalid JSON`. A `405` on `GET` is consistent with the 2026 revision, which replaced the old GET stream with `subscriptions/listen` over POST.
 2. **One server per request** (`createHttpServer`). Each request builds a fresh `McpServer` and a `StreamableHTTPServerTransport` with `sessionIdGenerator: undefined`. No session id is issued, and `tools/list` works without a prior `initialize`. Because nothing survives a request, state that must outlive one lives in `JobStore`, created once in `main.ts`.
 3. **The SDK's own checks** (inside `transport.handleRequest`). The transport answers `406` unless `Accept` lists both `application/json` and `text/event-stream`, `415` unless `Content-Type` is `application/json`, `400` for an `MCP-Protocol-Version` header it does not support (`2026-07-28` is one), and `400` with `-32700` for a JSON body that is not a JSON-RPC message, such as `null`. A notification (a message without an `id`) is acknowledged with `202` and no body.
 4. **A tool** (`registerTool` in `src/sdk-server/server.ts`): a name, a description, a zod input shape and a handler. The SDK turns the zod shape into JSON Schema for `tools/list` and validates arguments before the handler runs.
+
+Both servers use plain `node:http` on purpose, so the path check, the method check and the body reading are visible. A real service would use a framework such as Express, Fastify or Hono: a router does the first two, middleware does the third along with authentication and rate limits, and the MCP handling becomes one route handler. The routing that matters in MCP is one level down anyway: every request goes to the same URL, and the JSON-RPC `method` decides what runs.
+
+### Session mode: asking the user
+
+`confirm_purchase` cannot finish on its own: it must ask the user to confirm the price. In the 2025-11-25 revision the server does that with elicitation, a request that travels from the server to the client. Over HTTP a server cannot open a connection to a client, so the exchange is built from three pieces:
+
+1. The client sends `tools/call`. The response is an SSE stream, and the server keeps it open.
+2. The server writes its own request, `elicitation/create`, onto that stream, and the tool waits.
+3. The client sends the answer as a new POST: a JSON-RPC response whose `id` matches the question.
+
+The answer in step 3 is a separate HTTP request. It only helps if it reaches the same server object whose tool is waiting in step 2. That is what a session provides (`src/sdk-server/sessions.ts`): `initialize` on `/mcp-session` creates a server and a transport, stores them in a map under a random id, and returns the id in the `Mcp-Session-Id` header. Each later request carries the id and is passed to the same transport. `DELETE` removes the entry.
+
+What the route shows when the session is missing:
+
+| Request                                    | Reply                   | Why                                                                         |
+| ------------------------------------------ | ----------------------- | --------------------------------------------------------------------------- |
+| Any request without `Mcp-Session-Id`       | `400`, `-32000`         | The server cannot tell which session it belongs to                          |
+| A request with an id the map does not hold | `404`, `-32000`         | The session ended or the server restarted; the client must initialize again |
+| The answer sent to the stateless `/mcp`    | `202`, and nothing more | A fresh server has no call waiting, so the answer is dropped silently       |
+| `confirm_purchase` on the stateless `/mcp` | A result with `isError` | A fresh server never saw `initialize`, so the SDK refuses to ask            |
+
+The cost of a session is that the map lives in one process. With several processes behind a load balancer, every request of a session must reach the process that opened it (sticky routing), or the session state must move to a shared store. A restart ends every session. The 2026-07-28 revision removes sessions for this reason, and step 5 shows how it asks the same question without one.
+
+The tool itself knows none of this. In `src/catalog/tools.ts` it is a function of its arguments and an optional answer: without an answer it returns the question (`NeedsInput`), with one it returns the outcome. The SDK server gets the answer through elicitation and calls the tool a second time.
 
 ## 2. Three kinds of failure
 
@@ -93,7 +118,7 @@ Two implementation choices that are not spec text: returning arguments that fail
 
 ### Step 4: job tools
 
-`start_job` and `get_result` now come from the same shared definitions, so the hand-written server exposes all five tools. `buildTools(jobs)` takes the job store as an argument: a tool cannot hold a job, because a job outlives the request that started it.
+`start_job` and `get_result` now come from the same shared definitions, so the hand-written server exposes the same tools as the SDK server. `buildTools(jobs)` takes the job store as an argument: a tool cannot hold a job, because a job outlives the request that started it.
 
 Each server creates one `JobStore` in its `main.ts` and passes it down. In the hand-written server, `createHandler(jobs)` returns the request handler, and the store is the only thing that survives between two requests.
 
@@ -113,24 +138,24 @@ The HTTP tests send inputs like these over a real socket, then check that the se
 
 ## 6. The two revisions side by side
 
-| Aspect                      | SDK server (2025-11-25)                                       | Hand-written server (2026-07-28)                                                                                                                                      |
-| --------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Handshake                   | `initialize` accepted                                         | Removed: `400`, `-32022` with supported versions                                                                                                                      |
-| Session id                  | None issued in stateless mode; the protocol still supports it | Removed from the protocol                                                                                                                                             |
-| `server/discover`           | `-32601` (v1 of the SDK does not implement it)                | Required; returns versions, capabilities, instructions, cache fields                                                                                                  |
-| Per-request metadata        | Not required                                                  | `_meta` version and capabilities required; `MCP-Protocol-Version` and `Mcp-Method` headers required, plus `Mcp-Name` for a call that names a tool, prompt or resource |
-| Unknown method              | HTTP 200 carrying a JSON-RPC `-32601`                         | HTTP 404 with `-32601`                                                                                                                                                |
-| Unknown tool                | A result with `isError: true`                                 | `400` with `-32602`                                                                                                                                                   |
-| Response format             | SSE frame, even for one reply                                 | Plain JSON (the spec allows either)                                                                                                                                   |
-| Notification                | `202` with no body                                            | Not handled yet: answered like a request (see Known gaps in the README)                                                                                               |
-| `Accept` and `Content-Type` | Checked by the SDK: `406` and `415`                           | Not checked                                                                                                                                                           |
+| Aspect                      | SDK server (2025-11-25)                               | Hand-written server (2026-07-28)                                                                                                                                      |
+| --------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Handshake                   | `initialize` accepted                                 | Removed: `400`, `-32022` with supported versions                                                                                                                      |
+| Session id                  | None on `/mcp`; issued and required on `/mcp-session` | Removed from the protocol                                                                                                                                             |
+| `server/discover`           | `-32601` (v1 of the SDK does not implement it)        | Required; returns versions, capabilities, instructions, cache fields                                                                                                  |
+| Per-request metadata        | Not required                                          | `_meta` version and capabilities required; `MCP-Protocol-Version` and `Mcp-Method` headers required, plus `Mcp-Name` for a call that names a tool, prompt or resource |
+| Unknown method              | HTTP 200 carrying a JSON-RPC `-32601`                 | HTTP 404 with `-32601`                                                                                                                                                |
+| Unknown tool                | A result with `isError: true`                         | `400` with `-32602`                                                                                                                                                   |
+| Response format             | SSE frame, even for one reply                         | Plain JSON (the spec allows either)                                                                                                                                   |
+| Notification                | `202` with no body                                    | Not handled yet: answered like a request (see Known gaps in the README)                                                                                               |
+| `Accept` and `Content-Type` | Checked by the SDK: `406` and `415`                   | Not checked                                                                                                                                                           |
 
 ## 7. Tests
 
 `npm test` runs Vitest. Tests are split by what they need:
 
 - Pure logic with no network: `test/catalog/*` (item input validation, search and the job store), `test/protocol/*` (the type guards, the reply builders and every rule of `validateRequest`) and `test/server-2026/handler.test.ts` (every rejection case, calling `handleRpc` directly).
-- End to end over HTTP on a random port: `test/server-2026/http.test.ts` and `test/sdk-server/http.test.ts`. They also cover the request log and the misbehaving clients of section 5.
+- End to end over HTTP on a random port: `test/server-2026/http.test.ts`, `test/sdk-server/http.test.ts` and `test/sdk-server/sessions.test.ts` (session mode and the question in the middle of a tool call). They also cover the request log and the misbehaving clients of section 5.
 
 ## 8. Exercises
 

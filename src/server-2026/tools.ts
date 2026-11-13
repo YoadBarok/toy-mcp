@@ -87,6 +87,17 @@ export const callTool = (tools: Map<string, ToolDefinition>, params: unknown): C
   const args = isRecord(params) && params.arguments !== undefined ? params.arguments : {};
   if (!isRecord(args)) return invalid('params.arguments must be an object');
 
+  // A tool that needs the user cannot be served yet: multi round-trip requests are step 5, which
+  // will turn this into an `input_required` result. Until then it is a tool failure.
+  const reply = tool.call(args);
+  const outcome =
+    'needsInput' in reply
+      ? {
+          text: `${tool.name} needs an answer from the user, which this server cannot ask for yet.`,
+          isError: true,
+        }
+      : reply;
+
   // A tool call is never cached: it may charge, and its outcome belongs to this caller.
-  return { ok: true, result: complete(toOutput(tool.call(args))) };
+  return { ok: true, result: complete(toOutput(outcome)) };
 };
